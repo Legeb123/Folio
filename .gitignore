@@ -1,0 +1,13 @@
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+*.log
+
+test-results/
+playwright-report/
+folio-*.jpg
+folio-*.png
+
+.env*
+!.env.example

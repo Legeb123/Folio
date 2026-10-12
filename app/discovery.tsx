@@ -1,0 +1,365 @@
+"use client";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ArrowRight,
+  BookmarkPlus,
+  Check,
+  Compass,
+  LoaderCircle,
+  RefreshCw,
+} from "lucide-react";
+import { Book } from "@/lib/data";
+import { germanFromSearch, type GermanSearchMetadata } from "@/lib/openlibrary";
+import { usePreferences } from "@/lib/preferences";
+import { bookTitle, tr, statusLabel } from "@/lib/i18n";
+import { Cover } from "./components";
+export function affinity(books: Book[], genres: string[], favorites: string[]) {
+  const scores = new Map<string, number>();
+  for (const b of books) {
+    const weight =
+      (favorites.includes(b.id) ? 8 : 0) +
+      (b.rating >= 4 ? b.rating : 0) +
+      (b.status === "Read" ? 1 : 0);
+    if (weight) scores.set(b.author, (scores.get(b.author) || 0) + weight);
+  }
+  const authors = [...scores]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([name]) => name);
+  const tags = genres.length
+    ? genres
+    : books.filter((b) => b.rating >= 4).flatMap((b) => b.tags);
+  return { authors, genres: [...new Set(tags)].slice(0, 2) };
+}
+type Idea = {
+  book: Book;
+  kind: "author" | "genre" | "queue";
+  reason: string;
+  rank: number;
+};
+export function Ideas({
+  books,
+  onOpen,
+  onAdd,
+}: {
+  books: Book[];
+  onOpen: (b: Book) => void;
+  onAdd: (b: Book) => void;
+}) {
+  const { prefs, t } = usePreferences();
+  const profile = useMemo(
+    () => affinity(books, prefs.genres, prefs.favoriteBookIds),
+    [books, prefs.genres, prefs.favoriteBookIds],
+  );
+  const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [busy, setBusy] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setBusy(true);
+    setFailed(false);
+    setIdeas([]);
+    const queries = [
+      ...profile.authors.map((a) => ({
+        q: `author:"${a}"`,
+        kind: "author" as const,
+        reason: a,
+      })),
+      ...profile.genres.map((g) => ({
+        q: `subject:"${g === "Sci-Fi" ? "Science Fiction" : g}"`,
+        kind: "genre" as const,
+        reason: g,
+      })),
+    ];
+    if (!queries.length)
+      queries.push({ q: "subject:fiction", kind: "genre", reason: "Fiction" });
+    Promise.allSettled(
+      queries.map(async (q, index) => {
+        const r = await fetch(
+          `https://openlibrary.org/search.json?q=${encodeURIComponent(q.q)}&limit=10&lang=${prefs.language}&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject,editions,editions.key,editions.title,editions.language`,
+          {
+            signal: AbortSignal.any([
+              controller.signal,
+              AbortSignal.timeout(10000),
+            ]),
+          },
+        );
+        if (!r.ok) throw Error();
+        const d = await r.json();
+        return (d.docs || []).map(
+          (doc: {
+            key: string;
+            title: string;
+            author_name?: string[];
+            first_publish_year?: number;
+            cover_i?: number;
+            number_of_pages_median?: number;
+            editions?: GermanSearchMetadata["editions"];
+            subject?: string[];
+          }) =>
+            ({
+              book: {
+                id: doc.key,
+                title: doc.title,
+                author: doc.author_name?.[0] || "Unknown author",
+                year: doc.first_publish_year || 0,
+                cover: doc.cover_i
+                  ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`
+                  : "",
+                pages: doc.number_of_pages_median || 0,
+                status: "Want to Read",
+                rating: 0,
+                date: "",
+                tags:
+                  q.kind === "genre"
+                    ? [q.reason]
+                    : (doc.subject || []).slice(0, 3),
+                review: "",
+                spoiler: false,
+                description: "",
+                progress: 0,
+                ...germanFromSearch(doc),
+              } as Book,
+              kind: q.kind,
+              reason: q.reason,
+              rank: (q.kind === "author" ? 20 : 10) - index,
+            }) as Idea,
+        );
+      }),
+    ).then((results) => {
+      if (controller.signal.aborted) return;
+      setFailed(results.some((r) => r.status === "rejected"));
+      const seen = new Set<string>();
+      const found = results
+        .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
+        .filter((item) => {
+          const key = `${item.book.title.toLowerCase()}|${item.book.author.toLowerCase()}`;
+          if (
+            seen.has(item.book.id) ||
+            seen.has(key) ||
+            books.some(
+              (b) =>
+                b.id === item.book.id ||
+                (b.author.toLowerCase() === item.book.author.toLowerCase() &&
+                  [b.title, bookTitle(b, "de")].some(
+                    (s) => s.toLowerCase() === item.book.title.toLowerCase(),
+                  )),
+            )
+          )
+            return false;
+          seen.add(item.book.id);
+          seen.add(key);
+          return true;
+        })
+        .sort((a, b) => b.rank - a.rank)
+        .slice(0, 16);
+      setIdeas(found);
+      setBusy(false);
+    });
+    return () => controller.abort();
+  }, [profile, books, prefs.language, retry]);
+  const queue = books
+    .filter((b) => b.status === "Want to Read")
+    .map((book) => ({ book, kind: "queue" as const, reason: "", rank: 0 }));
+  const display = ideas.length ? ideas : !busy ? queue : [];
+  return (
+    <section className="page-section ideas-page">
+      <div className="page-heading">
+        <div>
+          <span className="eyebrow">
+            {t("FOLLOW YOUR CURIOSITY", "FOLGE DEINER NEUGIER")}
+          </span>
+          <h1>
+            {t("A few ideas for", "Ein paar Ideen für")}
+            <br />
+            <em>{t("your next chapter.", "dein nächstes Kapitel.")}</em>
+          </h1>
+          <p className="page-description">
+            {t(
+              "Books connected to your favorite genres, highly rated reads, and authors you return to.",
+              "Bücher passend zu deinen Lieblingsgenres, gut bewerteten Werken und vertrauten Autoren.",
+            )}
+          </p>
+        </div>
+        <Compass className="ideas-compass" size={70} />
+      </div>
+      <div className="taste-profile">
+        <span>{t("Inspired by", "Inspiriert von")}</span>
+        {profile.authors.map((a) => (
+          <span key={a}>{a}</span>
+        ))}
+        {profile.genres.map((g) => (
+          <span key={g}>{tr(g, prefs.language)}</span>
+        ))}
+        <button
+          className="text-button"
+          onClick={() => setRetry((n) => n + 1)}
+          disabled={busy}
+        >
+          <RefreshCw size={13} />
+          {t("Refresh", "Aktualisieren")}
+        </button>
+      </div>
+      {busy && (
+        <div className="empty-state" role="status">
+          <LoaderCircle className="spin" />
+          {t("Finding your next read…", "Deine nächste Lektüre wird gesucht …")}
+        </div>
+      )}
+      {failed && (
+        <p className="metadata-notice">
+          {t(
+            "Some recommendations could not be loaded. Available results or your saved reading queue are shown.",
+            "Einige Empfehlungen konnten nicht geladen werden. Angezeigt werden verfügbare Ergebnisse oder deine gespeicherte Leseliste.",
+          )}
+        </p>
+      )}
+      {!busy && display.length === 0 && (
+        <div className="empty-state">
+          <BookEmpty />
+          <p>
+            {t(
+              "No new matches yet. Choose favorite genres in Settings, or add books to your library.",
+              "Noch keine neuen Treffer. Wähle Lieblingsgenres in den Einstellungen oder füge Bücher hinzu.",
+            )}
+          </p>
+        </div>
+      )}
+      <div className="ideas-grid">
+        {display.map(({ book, kind, reason }) => (
+          <article className="idea-card" key={book.id}>
+            <button className="idea-open" onClick={() => onOpen(book)}>
+              <Cover book={book} />
+              <h3>{bookTitle(book, prefs.language)}</h3>
+              <p>{book.author}</p>
+            </button>
+            <div className="idea-reason">
+              {kind === "author"
+                ? t(`More by ${reason}`, `Weitere Bücher von ${reason}`)
+                : kind === "genre"
+                  ? t(
+                      `Because you like ${reason}`,
+                      `Weil du ${tr(reason, prefs.language)} magst`,
+                    )
+                  : t(
+                      "From your saved reading queue",
+                      "Aus deiner gespeicherten Leseliste",
+                    )}
+            </div>
+            {kind === "queue" ? (
+              <button className="button secondary" onClick={() => onOpen(book)}>
+                <Check size={14} />
+                {t("In your wishlist", "Auf deiner Leseliste")}
+              </button>
+            ) : (
+              <button className="button secondary" onClick={() => onAdd(book)}>
+                <BookmarkPlus size={14} />
+                {t("Want to Read", "Auf die Leseliste")}
+              </button>
+            )}
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+function BookEmpty() {
+  return <Compass size={28} />;
+}
+export function Wishlist({
+  books,
+  onOpen,
+  onStatus,
+}: {
+  books: Book[];
+  onOpen: (b: Book) => void;
+  onStatus: (b: Book, status: Book["status"]) => void;
+}) {
+  const { prefs, t } = usePreferences();
+  const queue = books.filter((b) => b.status === "Want to Read");
+  return (
+    <section className="page-section wishlist-page">
+      <div className="page-heading">
+        <div>
+          <span className="eyebrow">
+            {t(
+              "THE STORIES STILL TO COME",
+              "GESCHICHTEN, DIE NOCH AUF DICH WARTEN",
+            )}
+          </span>
+          <h1>
+            {t("Your reading", "Deine nächste")}{" "}
+            <em>{t("queue.", "Lektüre.")}</em>
+          </h1>
+          <p className="page-description">
+            {queue.length}{" "}
+            {t(
+              "books waiting for their moment. Start one whenever you’re ready.",
+              "Bücher warten auf ihren Moment. Beginne, wann immer du möchtest.",
+            )}
+          </p>
+        </div>
+        <BookmarkPlus size={55} className="ideas-compass" />
+      </div>
+      {queue.length ? (
+        <div className="queue-list">
+          {queue.map((b) => (
+            <article key={b.id}>
+              <button className="queue-book" onClick={() => onOpen(b)}>
+                <Cover book={b} />
+                <span>
+                  <strong>{bookTitle(b, prefs.language)}</strong>
+                  <small>{b.author}</small>
+                  <span>
+                    {b.tags.map((g) => tr(g, prefs.language)).join(" · ")}
+                  </span>
+                </span>
+              </button>
+              <div>
+                <button
+                  className="button primary"
+                  onClick={() => onStatus(b, "Currently Reading")}
+                >
+                  {t("Start reading", "Lesen beginnen")}
+                  <ArrowRight size={14} />
+                </button>
+                <select
+                  aria-label={t(
+                    `Status for ${bookTitle(b, prefs.language)}`,
+                    `Status für ${bookTitle(b, prefs.language)}`,
+                  )}
+                  value={b.status}
+                  onChange={(e) =>
+                    onStatus(b, e.target.value as Book["status"])
+                  }
+                >
+                  {(["Want to Read", "Currently Reading", "Read"] as const).map(
+                    (s) => (
+                      <option value={s} key={s}>
+                        {statusLabel(s, prefs.language)}
+                      </option>
+                    ),
+                  )}
+                </select>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state">
+          <BookmarkPlus />
+          <h3>
+            {t("Room for a new story.", "Platz für eine neue Geschichte.")}
+          </h3>
+          <p>
+            {t(
+              "Add books from Search or Ideas with the Want to Read status.",
+              "Füge Bücher über die Suche oder Ideen mit dem Status Leseliste hinzu.",
+            )}
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
