@@ -542,6 +542,9 @@ export function SettingsButton() {
                   onChange={(event) =>
                     update({
                       libraryView: event.target.value as "grid" | "diary",
+                      ...(event.target.value === "diary"
+                        ? { shelfStyle: "simple" as const }
+                        : {}),
                     })
                   }
                 >

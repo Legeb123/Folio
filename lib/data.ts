@@ -1,3 +1,4 @@
+import type { BookLocation, Publication } from "./geography";
 import {
   validExtras,
   type Dimension,
@@ -20,7 +21,11 @@ export type Book = {
   spoiler: boolean;
   description: string;
   progress: number;
+  location?: BookLocation | null;
+  publication?: Publication | null;
   startDate?: string;
+  criteriaInitialized?: boolean;
+  goalDays?: number;
   germanMetadataKey?: string;
   scores?: Partial<Record<Dimension, number>>;
   thoughts?: string;

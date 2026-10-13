@@ -317,6 +317,14 @@ export function Wishlist({
                 </span>
               </button>
               <div>
+                <button className="text-button" onClick={() => onOpen(b)}>
+                  {t(
+                    b.goalDays
+                      ? `Goal: ${b.goalDays} days`
+                      : "Set reading goal",
+                    b.goalDays ? `Ziel: ${b.goalDays} Tage` : "Leseziel setzen",
+                  )}
+                </button>
                 <button
                   className="button primary"
                   onClick={() => onStatus(b, "Currently Reading")}

@@ -145,6 +145,10 @@ test("settings stay centered and new preferences apply and persist", async ({
     .getByRole("switch", { name: "Reduce motion", exact: true })
     .check();
   await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "My Library", exact: true })
+    .click();
   await expect(page.locator(".diary")).toBeVisible();
   await expect(page.locator(".app-shell")).toHaveAttribute(
     "data-density",
@@ -155,6 +159,10 @@ test("settings stay centered and new preferences apply and persist", async ({
     "true",
   );
   await page.reload();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "My Library", exact: true })
+    .click();
   await expect(page.locator(".diary")).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(

@@ -45,11 +45,22 @@ import {
 import { usePreferences } from "@/lib/preferences";
 import { SettingsButton, WelcomeButton } from "./experience";
 import { FavoriteBooksButton, resolveFavorites } from "./favorites";
+import { BookGoals, StartReadingGoal } from "./reading-goals";
+import { locationFor, type Publication } from "@/lib/geography";
+import { BookMap } from "./bookmap";
+import { Bookshelf, LibraryViewSwitcher } from "./bookshelf";
+import { Authors } from "./authors";
 import { Ideas, Wishlist } from "./discovery";
 import { bookTitle, tr, statusLabel } from "@/lib/i18n";
 import { switchStatus } from "@/lib/reading";
 type Tab =
-  "Home" | "My Library" | "Custom Lists" | "Analytics" | "Ideas" | "Wishlist";
+  | "Home"
+  | "My Library"
+  | "Custom Lists"
+  | "Analytics"
+  | "Ideas"
+  | "Wishlist"
+  | "Authors";
 const STORAGE = "folio-library-v1";
 const tabs: { label: Tab; icon: typeof Home }[] = [
   { label: "Home", icon: Home },
@@ -58,9 +69,10 @@ const tabs: { label: Tab; icon: typeof Home }[] = [
   { label: "Analytics", icon: BarChart3 },
   { label: "Ideas", icon: Compass },
   { label: "Wishlist", icon: BookmarkPlus },
+  { label: "Authors", icon: Feather },
 ];
 export default function Folio() {
-  const { t, prefs } = usePreferences();
+  const { t, prefs, update } = usePreferences();
   const [data, setData] = useState<LibraryData>(() => createSeed());
   const [ready, setReady] = useState(false);
   const [storageSafe, setStorageSafe] = useState(true);
@@ -74,6 +86,7 @@ export default function Folio() {
   const [listEditor, setListEditor] = useState<ReadingList | null>(null);
   const [listView, setListView] = useState<ReadingList | null>(null);
   const [listMode, setListMode] = useState<"ranked" | "tiers">("ranked");
+  const [startingBook, setStartingBook] = useState<Book | null>(null);
   const [goalEditor, setGoalEditor] = useState(false);
   const [goalDraft, setGoalDraft] = useState(24);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -166,6 +179,25 @@ export default function Folio() {
         ),
     [data.books, status, genre, sort, prefs.language],
   );
+  const resolvePublication = useCallback(
+    (id: string, publication: Publication) => {
+      setData((d) => ({
+        ...d,
+        books: d.books.map((b) =>
+          b.id === id && b.publication === undefined && !locationFor(b)
+            ? { ...b, publication }
+            : b,
+        ),
+      }));
+    },
+    [],
+  );
+  function changeStatus(book: Book, status: Book["status"]) {
+    const changed = switchStatus(book, status);
+    if (book.status === "Want to Read" && status === "Currently Reading")
+      setStartingBook(changed);
+    else saveBook(changed);
+  }
   function saveBook(book: Book) {
     setData((d) => ({
       ...d,
@@ -257,6 +289,7 @@ export default function Folio() {
                       Analytics: "Statistik",
                       Ideas: "Ideen",
                       Wishlist: "Leseliste",
+                      Authors: "Autor:innen",
                     }[label],
                   )}
                 </span>
@@ -382,7 +415,26 @@ export default function Folio() {
                 label={tr("Average rating", prefs.language)}
                 detail={tr("Your kind of stories", prefs.language)}
               />
-              <div className="goal-stat">
+              <div
+                className="goal-stat"
+                role="button"
+                tabIndex={0}
+                aria-label={t("View reading goals", "Leseziele ansehen")}
+                onClick={() => {
+                  setGoalDraft(data.goal);
+                  setGoalEditor(true);
+                }}
+                onKeyDown={(e) => {
+                  if (
+                    e.target === e.currentTarget &&
+                    (e.key === "Enter" || e.key === " ")
+                  ) {
+                    e.preventDefault();
+                    setGoalDraft(data.goal);
+                    setGoalEditor(true);
+                  }
+                }}
+              >
                 <div className="goal-top">
                   <span className="stat-icon">
                     <Target size={19} />
@@ -390,16 +442,10 @@ export default function Folio() {
                   <span className="goal-label">
                     {year} {t("reading goal", "Leseziel")}
                   </span>
-                  <button
-                    className="text-button"
-                    onClick={() => {
-                      setGoalDraft(data.goal);
-                      setGoalEditor(true);
-                    }}
-                  >
-                    {tr("Edit", prefs.language)}
+                  <span className="text-button">
+                    {t("View goals", "Ziele ansehen")}
                     <ChevronRight size={12} />
-                  </button>
+                  </span>
                 </div>
                 <div className="goal-numbers">
                   <strong>
@@ -517,6 +563,16 @@ export default function Folio() {
                 )}
               </p>
             )}
+            {tab === "My Library" && (
+              <div className="library-display-options">
+                <LibraryViewSwitcher onChange={() => setView("grid")} />
+                <BookMap
+                  books={data.books}
+                  onOpen={setModal}
+                  onResolve={resolvePublication}
+                />
+              </div>
+            )}
             <div className="library-toolbar">
               <div className="filter-tabs">
                 {["All books", "Read", "Currently Reading", "Want to Read"].map(
@@ -578,28 +634,44 @@ export default function Folio() {
                   </select>
                   <ChevronDown size={12} />
                 </label>
-                <div className="view-switch">
-                  <button
-                    className={view === "grid" ? "active" : ""}
-                    aria-label={tr("Grid view", prefs.language)}
-                    aria-pressed={view === "grid"}
-                    onClick={() => setView("grid")}
-                  >
-                    <Grid2X2 size={15} />
-                  </button>
-                  <button
-                    className={view === "diary" ? "active" : ""}
-                    aria-label={tr("Diary view", prefs.language)}
-                    aria-pressed={view === "diary"}
-                    onClick={() => setView("diary")}
-                  >
-                    <List size={16} />
-                  </button>
-                </div>
+                {tab === "My Library" && (
+                  <div className="view-switch">
+                    <button
+                      className={view === "grid" ? "active" : ""}
+                      aria-label={tr("Grid view", prefs.language)}
+                      aria-pressed={view === "grid"}
+                      onClick={() => {
+                        setView("grid");
+                        update({ libraryView: "grid" });
+                      }}
+                    >
+                      <Grid2X2 size={15} />
+                    </button>
+                    <button
+                      className={view === "diary" ? "active" : ""}
+                      aria-label={tr("Diary view", prefs.language)}
+                      aria-pressed={view === "diary"}
+                      onClick={() => {
+                        setView("diary");
+                        update({ shelfStyle: "simple", libraryView: "diary" });
+                      }}
+                    >
+                      <List size={16} />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
             {filtered.length ? (
-              view === "grid" ? (
+              tab === "My Library" &&
+              view === "grid" &&
+              prefs.shelfStyle !== "simple" ? (
+                <Bookshelf
+                  books={filtered}
+                  onOpen={setModal}
+                  onStatus={changeStatus}
+                />
+              ) : tab === "Home" || view === "grid" ? (
                 <div className="book-grid">
                   {(tab === "Home" ? filtered.slice(0, 8) : filtered).map(
                     (b) => (
@@ -611,11 +683,9 @@ export default function Folio() {
                             `Status for ${bookTitle(b, prefs.language)}`,
                             `Status für ${bookTitle(b, prefs.language)}`,
                           )}
-                          value={statusLabel(b.status, prefs.language)}
+                          value={b.status}
                           onChange={(e) =>
-                            saveBook(
-                              switchStatus(b, e.target.value as Book["status"]),
-                            )
+                            changeStatus(b, e.target.value as Book["status"])
                           }
                         >
                           {(
@@ -779,9 +849,10 @@ export default function Folio() {
           <Wishlist
             books={data.books}
             onOpen={setModal}
-            onStatus={(book, status) => saveBook(switchStatus(book, status))}
+            onStatus={changeStatus}
           />
         )}
+        {tab === "Authors" && <Authors books={data.books} onOpen={setModal} />}
         {tab === "Analytics" && <Analytics books={data.books} />}
         <footer>
           <span className="footer-brand">folio.</span>
@@ -949,6 +1020,16 @@ export default function Folio() {
           </div>
         </ModalFrame>
       )}
+      {startingBook && (
+        <StartReadingGoal
+          book={startingBook}
+          onClose={() => setStartingBook(null)}
+          onSave={(book) => {
+            saveBook(book);
+            setStartingBook(null);
+          }}
+        />
+      )}
       {goalEditor && (
         <ModalFrame
           title={t("Set your reading goal", "Leseziel festlegen")}
@@ -986,6 +1067,13 @@ export default function Folio() {
               {tr("Save goal", prefs.language)}
             </button>
           </form>
+          <BookGoals
+            books={data.books}
+            onOpen={(book) => {
+              setGoalEditor(false);
+              setModal(book);
+            }}
+          />
         </ModalFrame>
       )}
       {toast && (

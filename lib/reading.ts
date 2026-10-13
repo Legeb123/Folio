@@ -1,3 +1,4 @@
+import { countries, validPublication } from "./geography";
 import type { Book, Status } from "./data";
 export const dimensions = [
   ["prose", "Writing Style / Prose", "Schreibstil"],
@@ -5,10 +6,13 @@ export const dimensions = [
   ["characters", "Character Development", "Charaktere"],
   ["world", "Worldbuilding", "Weltgestaltung"],
   ["impact", "Emotional Impact", "Emotionale Wirkung"],
+  ["message", "Message", "Botschaft"],
 ] as const;
 export type Dimension = (typeof dimensions)[number][0];
 export type Quote = { id: string; text: string; page: string };
 export type Background = {
+  version?: 2;
+  message?: string;
   language: "en" | "de";
   title: string;
   summary: string;
@@ -54,9 +58,23 @@ export function switchStatus(book: Book, status: Status): Book {
 }
 export function validExtras(b: Book) {
   return (
+    (b.publication === undefined ||
+      b.publication === null ||
+      validPublication(b.publication)) &&
+    (b.location === undefined ||
+      b.location === null ||
+      (typeof b.location === "object" &&
+        countries.some((c) => c.id === b.location?.country) &&
+        ["setting", "author"].includes(b.location.basis))) &&
     (b.germanMetadataKey === undefined ||
       (typeof b.germanMetadataKey === "string" &&
         /^\/books\/OL\d+M$/.test(b.germanMetadataKey))) &&
+    (b.criteriaInitialized === undefined ||
+      typeof b.criteriaInitialized === "boolean") &&
+    (b.goalDays === undefined ||
+      (Number.isInteger(b.goalDays) &&
+        b.goalDays >= 1 &&
+        b.goalDays <= 3650)) &&
     (b.startDate === undefined || typeof b.startDate === "string") &&
     (b.thoughts === undefined || typeof b.thoughts === "string") &&
     (b.takeaways === undefined || typeof b.takeaways === "string") &&
@@ -86,6 +104,9 @@ export function validExtras(b: Book) {
         typeof b.german.description === "string")) &&
     (b.background === undefined ||
       (!!b.background &&
+        (b.background.version === undefined || b.background.version === 2) &&
+        (b.background.message === undefined ||
+          typeof b.background.message === "string") &&
         ["en", "de"].includes(b.background.language) &&
         typeof b.background.summary === "string" &&
         typeof b.background.title === "string" &&

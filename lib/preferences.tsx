@@ -13,6 +13,7 @@ export const genres = [
   "Biography",
   "Romance",
 ] as const;
+export type ShelfStyle = "simple" | "rustic" | "white";
 export type Preferences = {
   version: 1;
   completed: boolean;
@@ -22,6 +23,7 @@ export type Preferences = {
   cover: "leather" | "modern" | "minimalist";
   favoriteBookIds: string[];
   libraryView: "grid" | "diary";
+  shelfStyle: ShelfStyle;
   density: "comfortable" | "compact";
   reduceMotion: boolean;
 };
@@ -34,6 +36,7 @@ export const defaults: Preferences = {
   cover: "modern",
   favoriteBookIds: ["sample-3", "sample-0", "sample-1"],
   libraryView: "grid",
+  shelfStyle: "simple",
   density: "comfortable",
   reduceMotion: false,
 };
@@ -53,6 +56,8 @@ function valid(v: unknown): v is Preferences {
         p.favoriteBookIds.length <= 3 &&
         p.favoriteBookIds.every((id) => typeof id === "string") &&
         new Set(p.favoriteBookIds).size === p.favoriteBookIds.length)) &&
+    (p.shelfStyle === undefined ||
+      ["simple", "rustic", "white"].includes(p.shelfStyle)) &&
     (p.libraryView === undefined ||
       ["grid", "diary"].includes(p.libraryView)) &&
     (p.density === undefined ||

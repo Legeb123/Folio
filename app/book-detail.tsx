@@ -11,7 +11,6 @@ import {
   NotebookPen,
   History,
   SlidersHorizontal,
-  LoaderCircle,
 } from "lucide-react";
 import type { Book, ReadingList, Status } from "@/lib/data";
 import {
@@ -23,8 +22,10 @@ import {
   type Background,
 } from "@/lib/reading";
 import { bookTitle, bookDescription, hasGerman, statusLabel } from "@/lib/i18n";
-import { curatedContext } from "@/lib/context";
+import { ContextPanel } from "./context-panel";
 import { usePreferences } from "@/lib/preferences";
+import { BookLocationField } from "./book-location";
+import { ReadingGoalField } from "./reading-goals";
 import { Cover, Stars, ModalFrame } from "./components";
 export function BookDetail({
   book,
@@ -44,6 +45,9 @@ export function BookDetail({
   const { prefs, t } = usePreferences();
   const [draft, setDraft] = useState<Book>({
     ...book,
+    criteriaInitialized:
+      book.criteriaInitialized ??
+      Object.values(book.scores || {}).some((v) => (v || 0) > 0),
     startDate: book.startDate || "",
     quotes: book.quotes || [],
   });
@@ -58,11 +62,17 @@ export function BookDetail({
   const [contextBusy, setContextBusy] = useState(false);
   const [contextError, setContextError] = useState(false);
   const [retry, setRetry] = useState(0);
-  const score = overall(draft.scores, draft.rating);
+  const score = draft.rating;
+  const average = overall(draft.scores);
+  const [revealed, setRevealed] = useState(false);
   const detailed = Object.values(draft.scores || {}).some((v) => (v || 0) > 0);
-  const curated = curatedContext(book, prefs.language);
   const end = draft.date || today();
   const days = duration(draft.startDate || "", end);
+  const goalInvalid =
+    draft.goalDays !== undefined &&
+    (!Number.isInteger(draft.goalDays) ||
+      draft.goalDays < 1 ||
+      draft.goalDays > 3650);
   const dateInvalid = Boolean(
     (draft.startDate && draft.date && draft.date < draft.startDate) ||
     (draft.startDate && draft.startDate > today()) ||
@@ -104,7 +114,11 @@ export function BookDetail({
     return () => controller.abort();
   }, [book.id, book.description]);
   useEffect(() => {
-    if (tab !== "context" || draft.background?.language === prefs.language)
+    if (
+      tab !== "context" ||
+      (draft.background?.language === prefs.language &&
+        draft.background.version === 2)
+    )
       return;
     const controller = new AbortController();
     setContextBusy(true);
@@ -170,6 +184,7 @@ export function BookDetail({
   const prepare = (): Book => ({
     ...draft,
     rating: score,
+    criteriaInitialized: draft.criteriaInitialized || detailed,
     description,
     tags: [
       ...new Set(
@@ -181,6 +196,7 @@ export function BookDetail({
     ],
   });
   function save() {
+    if (goalInvalid) return;
     if (dateInvalid) {
       setTab("log");
       setError(dateError);
@@ -191,7 +207,11 @@ export function BookDetail({
   function setDimension(key: Dimension, value: number) {
     setDraft((d) => {
       const scores = { ...d.scores, [key]: value };
-      return { ...d, scores, rating: overall(scores, d.rating) };
+      return {
+        ...d,
+        scores,
+        rating: d.criteriaInitialized ? d.rating : overall(scores, d.rating),
+      };
     });
   }
   async function copy(text: string) {
@@ -225,14 +245,7 @@ export function BookDetail({
             <div className="overall-aside">
               <strong>{score.toFixed(2)}</strong>
               <Stars value={score} />
-              <small>
-                {detailed
-                  ? t(
-                      "Average of rated dimensions",
-                      "Durchschnitt bewerteter Kriterien",
-                    )
-                  : t("Your rating", "Deine Bewertung")}
-              </small>
+              <small>{t("Your rating", "Deine Bewertung")}</small>
             </div>
           )}
         </aside>
@@ -351,17 +364,22 @@ export function BookDetail({
                     {[n - 0.5, n].map((v) => (
                       <button
                         type="button"
-                        disabled={detailed}
                         key={v}
                         aria-label={t(
                           `Rate ${v} stars`,
                           `${v} Sterne vergeben`,
                         )}
                         aria-pressed={score === v}
-                        onMouseEnter={() => !detailed && setPreview(v)}
+                        onMouseEnter={() => setPreview(v)}
                         onFocus={() => !detailed && setPreview(v)}
                         onBlur={() => setPreview(0)}
-                        onClick={() => setDraft({ ...draft, rating: v })}
+                        onClick={() =>
+                          setDraft({
+                            ...draft,
+                            rating: v,
+                            criteriaInitialized: true,
+                          })
+                        }
                       />
                     ))}
                   </div>
@@ -370,7 +388,11 @@ export function BookDetail({
                   type="button"
                   className="text-button"
                   onClick={() => {
-                    setDraft({ ...draft, rating: 0, scores: {} });
+                    setDraft({
+                      ...draft,
+                      rating: 0,
+                      criteriaInitialized: true,
+                    });
                     setPreview(0);
                   }}
                 >
@@ -379,9 +401,13 @@ export function BookDetail({
               </div>
               <p className="account-note">
                 {t(
-                  "Rate the dimensions below to calculate an average. Leave a dimension at 0 to exclude it.",
-                  "Bewerte einzelne Kriterien für den Durchschnitt. Mit 0 bleibt ein Kriterium unbewertet.",
+                  "The sliders set your initial stars until you save or choose stars yourself. After that, both ratings stay independent. Zero excludes a dimension.",
+                  "Die Regler setzen anfangs die Sterne, bis du speicherst oder selbst Sterne vergibst. Danach bleiben beide Bewertungen unabhängig. 0 lässt ein Kriterium unbewertet.",
                 )}
+              </p>
+              <p className="criteria-average">
+                {t("Criteria average", "Kriterien-Durchschnitt")}:{" "}
+                <strong>{average.toFixed(2)} / 5</strong>
               </p>
               <div className="dimension-ratings">
                 {dimensions.map(([key, en, de]) => (
@@ -463,6 +489,14 @@ export function BookDetail({
                     : t("so far", "bisher")}
                 </div>
               )}
+              <BookLocationField
+                book={draft}
+                onChange={(publication) => setDraft({ ...draft, publication })}
+              />
+              <ReadingGoalField
+                book={draft}
+                onChange={(goalDays) => setDraft({ ...draft, goalDays })}
+              />
               <div className="form-row">
                 <label>
                   {t("Total pages", "Seiten insgesamt")}
@@ -715,125 +749,23 @@ export function BookDetail({
             </div>
           )}
           {tab === "context" && (
-            <div className="detail-panel context-panel">
-              <h3>{t("Beyond the story", "Hinter der Geschichte")}</h3>
-              <p>
-                {t(
-                  "Publication, the author’s life, and historical surroundings. Reference extracts are research starting points, not proof that a particular event caused a passage.",
-                  "Veröffentlichung, Autorenleben und zeitgeschichtlicher Hintergrund. Nachschlagewerke sind Ausgangspunkte für Recherchen, kein Beweis für den Einfluss eines bestimmten Ereignisses auf eine Textstelle.",
-                )}
-              </p>
-              {curated && (
-                <article>
-                  <span className="eyebrow">
-                    {t("HISTORICAL CONTEXT", "HISTORISCHER KONTEXT")}
-                  </span>
-                  <h4>{curated.period}</h4>
-                  <p>{curated.text}</p>
-                  <a href={curated.url} target="_blank" rel="noreferrer">
-                    {curated.source} ↗
-                  </a>
-                </article>
+            <ContextPanel
+              book={draft}
+              busy={contextBusy}
+              error={contextError}
+              onRetry={() => setRetry((n) => n + 1)}
+              revealed={revealed}
+              onReveal={() => setRevealed((v) => !v)}
+              onNotes={(contextNotes) => setDraft({ ...draft, contextNotes })}
+            />
+          )}
+          {goalInvalid && (
+            <p className="field-error" role="alert">
+              {t(
+                "Choose a whole number of days between 1 and 3650, or remove the goal.",
+                "Wähle eine ganze Zahl zwischen 1 und 3650 Tagen oder entferne das Ziel.",
               )}
-              {contextBusy && (
-                <p role="status">
-                  <LoaderCircle size={15} className="spin" />
-                  {t(
-                    "Loading reference overview…",
-                    "Hintergrundinformationen werden geladen …",
-                  )}
-                </p>
-              )}
-              {contextError && (
-                <p className="metadata-notice">
-                  {t(
-                    "Reference information could not be loaded. You can still add your own context notes.",
-                    "Nachschlageinformationen konnten nicht geladen werden. Du kannst eigene Kontextnotizen ergänzen.",
-                  )}{" "}
-                  <button
-                    type="button"
-                    className="text-button"
-                    onClick={() => setRetry((n) => n + 1)}
-                  >
-                    {t("Retry", "Erneut versuchen")}
-                  </button>
-                </p>
-              )}
-              {draft.background?.language === prefs.language && (
-                <>
-                  <article>
-                    <span className="eyebrow">
-                      {t(
-                        "REFERENCE OVERVIEW",
-                        "ÜBERBLICK AUS DEM NACHSCHLAGEWERK",
-                      )}
-                    </span>
-                    <h4>{draft.background.title}</h4>
-                    <p>
-                      {draft.background.summary ||
-                        t(
-                          "No work overview found. See the author reference below.",
-                          "Kein Werküberblick gefunden. Siehe Autorenreferenz unten.",
-                        )}
-                    </p>
-                    <a
-                      target="_blank"
-                      rel="noreferrer"
-                      href={draft.background.url}
-                    >
-                      Wikipedia ·{" "}
-                      {t("Source & contributors", "Quelle & Mitwirkende")} ↗
-                    </a>
-                    <small>
-                      {t(
-                        "Check that the source refers to this book.",
-                        "Prüfe, ob die Quelle dieses Buch behandelt.",
-                      )}
-                    </small>
-                  </article>
-                  {draft.background.authorSummary && (
-                    <article>
-                      <h4>{t("Author & period", "Autor und Epoche")}</h4>
-                      <p>{draft.background.authorSummary}</p>
-                      <a
-                        target="_blank"
-                        rel="noreferrer"
-                        href={draft.background.authorUrl}
-                      >
-                        Wikipedia · {book.author} ↗
-                      </a>
-                    </article>
-                  )}
-                  <p className="account-note">
-                    {t(
-                      "Wikipedia excerpts: CC BY-SA. Saved with your book when you click Save to library.",
-                      "Wikipedia-Auszüge: CC BY-SA. Werden mit „In Bibliothek speichern“ beim Buch gespeichert.",
-                    )}
-                  </p>
-                </>
-              )}
-              <label>
-                {t(
-                  "Your historical / literary notes",
-                  "Deine historischen / literarischen Notizen",
-                )}
-                <textarea
-                  aria-label={t(
-                    "Your historical / literary notes",
-                    "Deine historischen / literarischen Notizen",
-                  )}
-                  rows={5}
-                  value={draft.contextNotes || ""}
-                  onChange={(e) =>
-                    setDraft({ ...draft, contextNotes: e.target.value })
-                  }
-                  placeholder={t(
-                    "Events, influences, sources, and your interpretation…",
-                    "Ereignisse, Einflüsse, Quellen und deine Interpretation …",
-                  )}
-                />
-              </label>
-            </div>
+            </p>
           )}
           {error && (
             <p role="alert" className="field-error">
@@ -844,7 +776,7 @@ export function BookDetail({
             <button
               className="button secondary"
               type="button"
-              disabled={dateInvalid}
+              disabled={dateInvalid || goalInvalid}
               onClick={() => setPicker(!picker)}
             >
               <BookmarkPlus size={16} />
@@ -853,7 +785,7 @@ export function BookDetail({
             <button
               className="button primary"
               type="submit"
-              disabled={dateInvalid}
+              disabled={dateInvalid || goalInvalid}
             >
               <Check size={16} />
               {t("Save to library", "In Bibliothek speichern")}
@@ -867,7 +799,8 @@ export function BookDetail({
                     type="button"
                     key={l.id}
                     onClick={() => {
-                      if (!dateInvalid) onAddList(prepare(), l.id);
+                      if (!dateInvalid && !goalInvalid)
+                        onAddList(prepare(), l.id);
                       setPicker(false);
                     }}
                   >
