@@ -155,8 +155,10 @@ test("Ideas explain recommendations, exclude owned books and add to wishlist", a
     .getByRole("button", { name: "Ideas", exact: true })
     .click();
   await expect(page.locator(".idea-card")).toHaveCount(1);
-  await expect(page.locator(".idea-reason")).toContainText("More by");
-  expect(queries.some((q) => q.includes("author:"))).toBe(true);
+  await expect(page.locator(".idea-reason")).toContainText(
+    "Because you like History",
+  );
+  expect(queries.some((q) => q.includes("author:"))).toBe(false);
   expect(queries.some((q) => q.includes("History"))).toBe(true);
   await page
     .locator(".idea-card")
@@ -245,10 +247,10 @@ test("mobile detail panels, wishlist and Ideas failure state remain usable", asy
     .click();
   await expect(
     page.getByText(
-      "Some recommendations could not be loaded. Available results or your saved reading queue are shown.",
+      "Some recommendations could not be loaded. Please refresh to try again.",
     ),
   ).toBeVisible();
-  await expect(page.locator(".idea-card")).toHaveCount(4);
+  await expect(page.locator(".idea-card")).toHaveCount(0);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
@@ -489,4 +491,145 @@ test("German mobile goals and spoiler controls fit and remain usable", async ({
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
+});
+
+test("Ideas use every selected genre and rotate books on reentry", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "booktracker-preferences-v1",
+      JSON.stringify({
+        version: 1,
+        completed: true,
+        step: 3,
+        language: "en",
+        genres: ["History", "Fantasy", "Mystery"],
+        cover: "modern",
+      }),
+    ),
+  );
+  const queries: string[] = [];
+  await page.route("https://openlibrary.org/search.json?**", (r) => {
+    const q = new URL(r.request().url()).searchParams.get("q")!;
+    queries.push(q);
+    return r.fulfill({
+      json: {
+        docs: Array.from({ length: 60 }, (_, i) => ({
+          key: `/works/${q}-${i}`,
+          title: `${q} Book ${i}`,
+          author_name: ["Test Author"],
+        })),
+      },
+    });
+  });
+  await page.goto("/");
+  const nav = page.getByRole("navigation");
+  await nav.getByRole("button", { name: "Ideas", exact: true }).click();
+  await expect(page.locator(".idea-card")).toHaveCount(16);
+  await expect(page.locator(".taste-profile")).toContainText("Mystery");
+  await expect(page.locator(".taste-profile")).not.toContainText("Donna Tartt");
+  expect(new Set(queries)).toEqual(
+    new Set(['subject:"History"', 'subject:"Fantasy"', 'subject:"Mystery"']),
+  );
+  const first = await page.locator(".idea-card h3").allTextContents();
+  await nav.getByRole("button", { name: "Home", exact: true }).click();
+  await nav.getByRole("button", { name: "Ideas", exact: true }).click();
+  await expect(page.locator(".idea-card")).toHaveCount(16);
+  const second = await page.locator(".idea-card h3").allTextContents();
+  expect(second.every((title) => !first.includes(title))).toBe(true);
+});
+
+test("Ideas without interests do not fall back to seed authors or genres", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "booktracker-preferences-v1",
+      JSON.stringify({
+        version: 1,
+        completed: true,
+        step: 3,
+        language: "en",
+        genres: [],
+        cover: "modern",
+      }),
+    ),
+  );
+  const queries: string[] = [];
+  await page.route("https://openlibrary.org/search.json?**", (r) => {
+    queries.push(r.request().url());
+    return r.fulfill({ json: { docs: [] } });
+  });
+  await page.goto("/");
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "Ideas", exact: true })
+    .click();
+  await expect(page.locator(".ideas-page .empty-state")).toContainText(
+    "Choose your genre interests",
+  );
+  await expect(page.locator(".idea-card")).toHaveCount(0);
+  expect(queries).toHaveLength(0);
+});
+
+test("Ideas genre buttons focus the feed and restore all interests", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "booktracker-preferences-v1",
+      JSON.stringify({
+        version: 1,
+        completed: true,
+        step: 3,
+        language: "en",
+        genres: ["History", "Fantasy"],
+        cover: "modern",
+      }),
+    ),
+  );
+  await page.route("https://openlibrary.org/search.json?**", (r) => {
+    const q = new URL(r.request().url()).searchParams.get("q")!;
+    return r.fulfill({
+      json: {
+        docs: Array.from({ length: 20 }, (_, i) => ({
+          key: `/works/${q}-${i}`,
+          title: `${q} Book ${i}`,
+          author_name: ["Test Author"],
+        })),
+      },
+    });
+  });
+  await page.goto("/");
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "Ideas", exact: true })
+    .click();
+  await expect(page.locator(".idea-card")).toHaveCount(16);
+  const filters = page.getByRole("group", { name: "Filter ideas by genre" });
+  await filters.getByRole("button", { name: "Fantasy", exact: true }).click();
+  await expect(
+    filters.getByRole("button", { name: "Fantasy", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".idea-card")).toHaveCount(16);
+  await expect(page.locator(".idea-reason")).toHaveText(
+    Array(16).fill("Because you like Fantasy"),
+  );
+  await filters
+    .getByRole("button", { name: "All interests", exact: true })
+    .click();
+  await expect(page.locator(".idea-card")).toHaveCount(16);
+  await expect(page.locator(".ideas-grid")).toContainText(
+    "Because you like History",
+  );
+  await expect(page.locator(".ideas-grid")).toContainText(
+    "Because you like Fantasy",
+  );
+  expect(
+    await page.evaluate(
+      () =>
+        JSON.parse(localStorage.getItem("booktracker-preferences-v1")!).genres,
+    ),
+  ).toEqual(["History", "Fantasy"]);
 });

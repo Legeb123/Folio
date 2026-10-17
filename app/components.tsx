@@ -326,7 +326,7 @@ export function ModalFrame({
       if (e.key === "Escape" && dismissible) onClose();
       if (e.key === "Tab") {
         const elements = ref.current?.querySelectorAll<HTMLElement>(
-          'button:not(:disabled), input, select, textarea, [tabindex="0"]',
+          'button:not(:disabled), a[href], input, select, textarea, [tabindex="0"]',
         );
         if (!elements?.length) return;
         const first = elements[0],

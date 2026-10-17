@@ -13,24 +13,7 @@ import { germanFromSearch, type GermanSearchMetadata } from "@/lib/openlibrary";
 import { usePreferences } from "@/lib/preferences";
 import { bookTitle, tr, statusLabel } from "@/lib/i18n";
 import { Cover } from "./components";
-export function affinity(books: Book[], genres: string[], favorites: string[]) {
-  const scores = new Map<string, number>();
-  for (const b of books) {
-    const weight =
-      (favorites.includes(b.id) ? 8 : 0) +
-      (b.rating >= 4 ? b.rating : 0) +
-      (b.status === "Read" ? 1 : 0);
-    if (weight) scores.set(b.author, (scores.get(b.author) || 0) + weight);
-  }
-  const authors = [...scores]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 2)
-    .map(([name]) => name);
-  const tags = genres.length
-    ? genres
-    : books.filter((b) => b.rating >= 4).flatMap((b) => b.tags);
-  return { authors, genres: [...new Set(tags)].slice(0, 2) };
-}
+
 type Idea = {
   book: Book;
   kind: "author" | "genre" | "queue";
@@ -47,9 +30,16 @@ export function Ideas({
   onAdd: (b: Book) => void;
 }) {
   const { prefs, t } = usePreferences();
+  const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
+  const activeGenre =
+    selectedGenre && prefs.genres.includes(selectedGenre)
+      ? selectedGenre
+      : null;
   const profile = useMemo(
-    () => affinity(books, prefs.genres, prefs.favoriteBookIds),
-    [books, prefs.genres, prefs.favoriteBookIds],
+    () => ({
+      genres: activeGenre ? [activeGenre] : [...new Set(prefs.genres)],
+    }),
+    [prefs.genres, activeGenre],
   );
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [busy, setBusy] = useState(true);
@@ -60,24 +50,21 @@ export function Ideas({
     setBusy(true);
     setFailed(false);
     setIdeas([]);
-    const queries = [
-      ...profile.authors.map((a) => ({
-        q: `author:"${a}"`,
-        kind: "author" as const,
-        reason: a,
-      })),
-      ...profile.genres.map((g) => ({
-        q: `subject:"${g === "Sci-Fi" ? "Science Fiction" : g}"`,
-        kind: "genre" as const,
-        reason: g,
-      })),
-    ];
-    if (!queries.length)
-      queries.push({ q: "subject:fiction", kind: "genre", reason: "Fiction" });
+    const historyKey = `folio-ideas:${prefs.language}:${[...profile.genres].sort().join("|")}`;
+    let previous: string[] = [];
+    try {
+      previous = JSON.parse(sessionStorage.getItem(historyKey) || "[]");
+    } catch {}
+    if (!Array.isArray(previous)) previous = [];
+    const queries = profile.genres.map((g) => ({
+      q: `subject:"${g === "Sci-Fi" ? "Science Fiction" : g}"`,
+      kind: "genre" as const,
+      reason: g,
+    }));
     Promise.allSettled(
-      queries.map(async (q, index) => {
+      queries.map(async (q) => {
         const r = await fetch(
-          `https://openlibrary.org/search.json?q=${encodeURIComponent(q.q)}&limit=10&lang=${prefs.language}&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject,editions,editions.key,editions.title,editions.language`,
+          `https://openlibrary.org/search.json?q=${encodeURIComponent(q.q)}&limit=60&lang=${prefs.language}&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject,editions,editions.key,editions.title,editions.language`,
           {
             signal: AbortSignal.any([
               controller.signal,
@@ -123,7 +110,7 @@ export function Ideas({
               } as Book,
               kind: q.kind,
               reason: q.reason,
-              rank: (q.kind === "author" ? 20 : 10) - index,
+              rank: 0,
             }) as Idea,
         );
       }),
@@ -132,7 +119,20 @@ export function Ideas({
       setFailed(results.some((r) => r.status === "rejected"));
       const seen = new Set<string>();
       const found = results
-        .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
+        .flatMap((r) => {
+          if (r.status !== "fulfilled") return [];
+          const pool: Idea[] = [...r.value];
+          for (let i = pool.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [pool[i], pool[j]] = [pool[j], pool[i]];
+          }
+          pool.sort(
+            (a, b) =>
+              Number(previous.includes(a.book.id)) -
+              Number(previous.includes(b.book.id)),
+          );
+          return pool.map((item, index) => ({ ...item, rank: -index }));
+        })
         .filter((item) => {
           const key = `${item.book.title.toLowerCase()}|${item.book.author.toLowerCase()}`;
           if (
@@ -152,17 +152,26 @@ export function Ideas({
           seen.add(key);
           return true;
         })
-        .sort((a, b) => b.rank - a.rank)
+        .sort(
+          (a, b) =>
+            Number(previous.includes(a.book.id)) -
+              Number(previous.includes(b.book.id)) || b.rank - a.rank,
+        )
         .slice(0, 16);
+      if (found.length) {
+        try {
+          sessionStorage.setItem(
+            historyKey,
+            JSON.stringify(found.map((item) => item.book.id)),
+          );
+        } catch {}
+      }
       setIdeas(found);
       setBusy(false);
     });
     return () => controller.abort();
   }, [profile, books, prefs.language, retry]);
-  const queue = books
-    .filter((b) => b.status === "Want to Read")
-    .map((book) => ({ book, kind: "queue" as const, reason: "", rank: 0 }));
-  const display = ideas.length ? ideas : !busy ? queue : [];
+  const display = ideas;
   return (
     <section className="page-section ideas-page">
       <div className="page-heading">
@@ -177,25 +186,42 @@ export function Ideas({
           </h1>
           <p className="page-description">
             {t(
-              "Books connected to your favorite genres, highly rated reads, and authors you return to.",
-              "Bücher passend zu deinen Lieblingsgenres, gut bewerteten Werken und vertrauten Autoren.",
+              "Fresh reading suggestions based only on your selected genre interests.",
+              "Neue Leseideen passend zu deinen ausgewählten Genre-Interessen.",
             )}
           </p>
         </div>
         <Compass className="ideas-compass" size={70} />
       </div>
       <div className="taste-profile">
-        <span>{t("Inspired by", "Inspiriert von")}</span>
-        {profile.authors.map((a) => (
-          <span key={a}>{a}</span>
-        ))}
-        {profile.genres.map((g) => (
-          <span key={g}>{tr(g, prefs.language)}</span>
-        ))}
+        <span>{t("Show", "Anzeigen")}</span>
+        <div
+          className="ideas-genre-filters"
+          role="group"
+          aria-label={t("Filter ideas by genre", "Ideen nach Genre filtern")}
+        >
+          <button
+            type="button"
+            aria-pressed={activeGenre === null}
+            onClick={() => setSelectedGenre(null)}
+          >
+            {t("All interests", "Alle Interessen")}
+          </button>
+          {prefs.genres.map((g) => (
+            <button
+              type="button"
+              key={g}
+              aria-pressed={activeGenre === g}
+              onClick={() => setSelectedGenre(g)}
+            >
+              {tr(g, prefs.language)}
+            </button>
+          ))}
+        </div>
         <button
           className="text-button"
           onClick={() => setRetry((n) => n + 1)}
-          disabled={busy}
+          disabled={busy || !profile.genres.length}
         >
           <RefreshCw size={13} />
           {t("Refresh", "Aktualisieren")}
@@ -210,8 +236,8 @@ export function Ideas({
       {failed && (
         <p className="metadata-notice">
           {t(
-            "Some recommendations could not be loaded. Available results or your saved reading queue are shown.",
-            "Einige Empfehlungen konnten nicht geladen werden. Angezeigt werden verfügbare Ergebnisse oder deine gespeicherte Leseliste.",
+            "Some recommendations could not be loaded. Please refresh to try again.",
+            "Einige Empfehlungen konnten nicht geladen werden. Bitte aktualisiere, um es erneut zu versuchen.",
           )}
         </p>
       )}
@@ -220,8 +246,8 @@ export function Ideas({
           <BookEmpty />
           <p>
             {t(
-              "No new matches yet. Choose favorite genres in Settings, or add books to your library.",
-              "Noch keine neuen Treffer. Wähle Lieblingsgenres in den Einstellungen oder füge Bücher hinzu.",
+              "No new matches yet. Choose your genre interests in Settings, or refresh for more ideas.",
+              "Noch keine neuen Treffer. Wähle deine Genre-Interessen in den Einstellungen oder aktualisiere für neue Ideen.",
             )}
           </p>
         </div>
