@@ -1,4 +1,5 @@
 "use client";
+import { ReferenceTitle } from "./reference-title";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Search, ArrowUpRight, RefreshCw, Feather } from "lucide-react";
 import { usePreferences } from "@/lib/preferences";
@@ -293,7 +294,13 @@ function AuthorProfile({
                     ? t("DOCUMENTED INFLUENCE", "BELEGTER EINFLUSS")
                     : t("PERSONAL RECOMMENDATION", "PERSÖNLICHE EMPFEHLUNG")}
                 </span>
-                <h3>{item.title}</h3>
+                <h3>
+                  <ReferenceTitle
+                    title={item.title}
+                    author={item.author}
+                    english
+                  />
+                </h3>
                 <small>{item.author}</small>
                 <p>{item[prefs.language]}</p>
                 <a href={item.source} target="_blank" rel="noreferrer">
@@ -473,7 +480,11 @@ export function Authors({
             t("Explore profile", "Profil entdecken")}
           <ArrowUpRight size={16} />
         </p>
-        {a.topWork && <small>{a.topWork}</small>}
+        {a.topWork && (
+          <small>
+            <ReferenceTitle title={a.topWork} author={a.name} />
+          </small>
+        )}
       </div>
     </button>
   );

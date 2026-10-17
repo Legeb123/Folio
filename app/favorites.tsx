@@ -9,10 +9,7 @@ export function resolveFavorites(books: Book[], ids: string[]) {
   const chosen = ids
     .map((id) => books.find((b) => b.id === id))
     .filter((b): b is Book => Boolean(b));
-  return [
-    ...chosen,
-    ...books.filter((b) => !chosen.some((c) => c.id === b.id)),
-  ].slice(0, 3);
+  return chosen.slice(0, 3);
 }
 export function FavoriteBooksButton({ books }: { books: Book[] }) {
   const { prefs, update, t } = usePreferences();
@@ -44,7 +41,7 @@ export function FavoriteBooksButton({ books }: { books: Book[] }) {
             className="favorite-editor"
             onSubmit={(e) => {
               e.preventDefault();
-              update({ favoriteBookIds: selected });
+              update({ favoriteBookIds: selected.filter(Boolean) });
               setOpen(false);
             }}
           >
@@ -73,20 +70,22 @@ export function FavoriteBooksButton({ books }: { books: Book[] }) {
                     <label>
                       {t(`Favorite ${i + 1}`, `Lieblingsbuch ${i + 1}`)}
                       <select
-                        required
                         aria-label={t(
                           `Favorite ${i + 1}`,
                           `Lieblingsbuch ${i + 1}`,
                         )}
                         value={selected[i] || ""}
                         onChange={(e) =>
-                          setSelected((old) =>
-                            old.map((id, index) =>
-                              index === i ? e.target.value : id,
-                            ),
-                          )
+                          setSelected((old) => {
+                            const next = [...old];
+                            next[i] = e.target.value;
+                            return next;
+                          })
                         }
                       >
+                        <option value="">
+                          {t("Choose a book", "Buch auswählen")}
+                        </option>
                         {books
                           .filter(
                             (b) =>

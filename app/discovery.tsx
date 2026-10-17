@@ -64,7 +64,7 @@ export function Ideas({
     Promise.allSettled(
       queries.map(async (q) => {
         const r = await fetch(
-          `https://openlibrary.org/search.json?q=${encodeURIComponent(q.q)}&limit=60&lang=${prefs.language}&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject,editions,editions.key,editions.title,editions.language`,
+          `https://openlibrary.org/search.json?q=${encodeURIComponent(`${q.q} language:${prefs.language === "de" ? "ger" : "eng"}`)}&limit=60&lang=${prefs.language}&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject,editions,editions.key,editions.title,editions.language`,
           {
             signal: AbortSignal.any([
               controller.signal,

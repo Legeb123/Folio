@@ -21,6 +21,7 @@ import {
   type Dimension,
   type Background,
 } from "@/lib/reading";
+import { localizedTitles, mergeTitleMetadata } from "@/lib/localized-titles";
 import { bookTitle, bookDescription, hasGerman, statusLabel } from "@/lib/i18n";
 import { ContextPanel } from "./context-panel";
 import { usePreferences } from "@/lib/preferences";
@@ -51,6 +52,17 @@ export function BookDetail({
     startDate: book.startDate || "",
     quotes: book.quotes || [],
   });
+  useEffect(() => {
+    const controller = new AbortController();
+    localizedTitles([book], prefs.language, controller.signal)
+      .then((updates) => {
+        const update = updates.get(book.id);
+        if (update && !controller.signal.aborted)
+          setDraft((current) => mergeTitleMetadata(current, update));
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [book.id, prefs.language]);
   const [tags, setTags] = useState(book.tags.join(", "));
   const [tab, setTab] = useState<"log" | "notes" | "context">("log");
   const [preview, setPreview] = useState(0);
@@ -260,11 +272,6 @@ export function BookDetail({
           <p className="book-byline">
             {book.author} · {book.year || t("Year unknown", "Jahr unbekannt")}
           </p>
-          {prefs.language === "de" && bookTitle(draft, "de") !== book.title && (
-            <p className="original-title">
-              {t("Original title", "Originaltitel")}: {book.title}
-            </p>
-          )}
           <p className="description">
             {loading && !hasGerman(draft)
               ? t("Loading work description…", "Beschreibung wird geladen …")

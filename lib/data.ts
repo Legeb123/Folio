@@ -26,6 +26,7 @@ export type Book = {
   startDate?: string;
   criteriaInitialized?: boolean;
   goalDays?: number;
+  englishTitle?: string;
   germanMetadataKey?: string;
   scores?: Partial<Record<Dimension, number>>;
   thoughts?: string;
@@ -160,6 +161,11 @@ const descriptions = [
   "An unsettling exploration of alienation and the absurd, following Meursault as he confronts the expectations of society.",
   "Connell and Marianne navigate intimacy, class, and the shifting distance between two people as they move from a small town to university.",
 ];
+export function createEmptyLibrary(): LibraryData {
+  return { version: 1, books: [], lists: [], goal: 24 };
+}
+
+// Sample data is retained only for tests, never for new user libraries.
 export function createSeed(): LibraryData {
   const now = new Date();
   const books: Book[] = seedRows.map((r, i) => {

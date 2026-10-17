@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import {
   Book,
-  createSeed,
+  createEmptyLibrary,
   LibraryData,
   ReadingList,
   readingStats,
@@ -51,6 +51,7 @@ import { BookMap } from "./bookmap";
 import { Bookshelf, LibraryViewSwitcher } from "./bookshelf";
 import { Authors } from "./authors";
 import { Ideas, Wishlist } from "./discovery";
+import { localizedTitles, mergeTitleMetadata } from "@/lib/localized-titles";
 import { bookTitle, tr, statusLabel } from "@/lib/i18n";
 import { switchStatus } from "@/lib/reading";
 type Tab =
@@ -73,8 +74,25 @@ const tabs: { label: Tab; icon: typeof Home }[] = [
 ];
 export default function Folio() {
   const { t, prefs, update } = usePreferences();
-  const [data, setData] = useState<LibraryData>(() => createSeed());
+  const [data, setData] = useState<LibraryData>(() => createEmptyLibrary());
   const [ready, setReady] = useState(false);
+  const titleLookupKey = data.books.map((b) => b.id).join("|");
+  useEffect(() => {
+    if (!ready) return;
+    const controller = new AbortController();
+    localizedTitles(data.books, prefs.language, controller.signal)
+      .then((updates) => {
+        if (controller.signal.aborted || !updates.size) return;
+        setData((current) => ({
+          ...current,
+          books: current.books.map((b) =>
+            updates.has(b.id) ? mergeTitleMetadata(b, updates.get(b.id)!) : b,
+          ),
+        }));
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [ready, titleLookupKey, prefs.language]);
   const [storageSafe, setStorageSafe] = useState(true);
   const [tab, setTab] = useState<Tab>("Home");
   const [modal, setModal] = useState<Book | null>(null);
@@ -970,10 +988,10 @@ export default function Folio() {
                                 setListView(null);
                                 setModal(book);
                               }}
-                              aria-label={`Open ${book.title}`}
+                              aria-label={`Open ${bookTitle(book, prefs.language)}`}
                             >
                               <Cover book={book} />
-                              <span>{book.title}</span>
+                              <span>{bookTitle(book, prefs.language)}</span>
                             </button>
                           ) : null;
                         })}

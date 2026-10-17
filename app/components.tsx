@@ -154,7 +154,7 @@ export function SearchBox({
     const timer = setTimeout(async () => {
       try {
         const response = await fetch(
-          `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=8&lang=${prefs.language}&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,editions,editions.key,editions.title,editions.language`,
+          `https://openlibrary.org/search.json?q=${encodeURIComponent(`(${query}) language:${prefs.language === "de" ? "ger" : "eng"}`)}&limit=8&lang=${prefs.language}&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,editions,editions.key,editions.title,editions.language`,
           {
             signal: AbortSignal.any([
               controller.signal,

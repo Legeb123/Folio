@@ -1,3 +1,4 @@
+import { germanFromSearch } from "@/lib/openlibrary";
 import type { NextRequest } from "next/server";
 import { authorKey } from "@/lib/authors";
 import { rankAuthorWorks, AUTHOR_RANKING_WINDOW } from "@/lib/author-ranking";
@@ -53,11 +54,11 @@ export async function GET(request: NextRequest) {
     };
     try {
       const fields =
-        "key,title,author_name,cover_i,first_publish_year,number_of_pages_median,readinglog_count,osp_count,edition_count";
+        "key,title,author_name,cover_i,first_publish_year,number_of_pages_median,readinglog_count,osp_count,edition_count,editions,editions.key,editions.title,editions.language";
       const url = (offset: number, limit: number) =>
         "https://openlibrary.org/search.json?" +
         new URLSearchParams({
-          q: `author_key:${id}`,
+          q: `author_key:${id} language:${lang === "de" ? "ger" : "eng"}`,
           sort: "readinglog",
           limit: String(limit),
           offset: String(offset),
@@ -102,6 +103,7 @@ export async function GET(request: NextRequest) {
         .map((d) => ({
           id: String(d.key).startsWith("/works/") ? d.key : `/works/${d.key}`,
           title: d.title,
+          ...germanFromSearch(d),
           author: ((d.author_name as string[]) || [name]).join(", "),
           year: d.first_publish_year || 0,
           cover: d.cover_i

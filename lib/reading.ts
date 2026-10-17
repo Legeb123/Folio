@@ -66,6 +66,7 @@ export function validExtras(b: Book) {
       (typeof b.location === "object" &&
         countries.some((c) => c.id === b.location?.country) &&
         ["setting", "author"].includes(b.location.basis))) &&
+    (b.englishTitle === undefined || typeof b.englishTitle === "string") &&
     (b.germanMetadataKey === undefined ||
       (typeof b.germanMetadataKey === "string" &&
         /^\/books\/OL\d+M$/.test(b.germanMetadataKey))) &&

@@ -1,4 +1,5 @@
 "use client";
+import { resetLegacyLibrary } from "./library-reset";
 import { createContext, useContext, useEffect, useState } from "react";
 export const PREF_KEY = "booktracker-preferences-v1";
 export const genres = [
@@ -34,7 +35,7 @@ export const defaults: Preferences = {
   language: "en",
   genres: [],
   cover: "modern",
-  favoriteBookIds: ["sample-3", "sample-0", "sample-1"],
+  favoriteBookIds: [],
   libraryView: "grid",
   shelfStyle: "simple",
   density: "comfortable",
@@ -85,6 +86,7 @@ export function PreferencesProvider({
   const [writable, setWritable] = useState(true);
   useEffect(() => {
     try {
+      resetLegacyLibrary(localStorage);
       const raw = localStorage.getItem(PREF_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);

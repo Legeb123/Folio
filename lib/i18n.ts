@@ -69,8 +69,11 @@ export function bookTitle(book: Book, lang: string) {
   return lang === "de"
     ? book.german?.title ||
         germanBooks[Number(book.id.replace("sample-", ""))]?.[0] ||
-        book.title
-    : book.title;
+        "Deutscher Titel nicht verfügbar"
+    : book.englishTitle ||
+        (book.id.startsWith("sample-")
+          ? book.title
+          : "English title unavailable");
 }
 export function bookDescription(book: Book, lang: string) {
   return lang === "de"
