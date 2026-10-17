@@ -66,6 +66,8 @@ export function validExtras(b: Book) {
       (typeof b.location === "object" &&
         countries.some((c) => c.id === b.location?.country) &&
         ["setting", "author"].includes(b.location.basis))) &&
+    (b.coverStyle === undefined ||
+      ["modern", "minimalist", "leather"].includes(b.coverStyle)) &&
     (b.englishTitle === undefined || typeof b.englishTitle === "string") &&
     (b.germanMetadataKey === undefined ||
       (typeof b.germanMetadataKey === "string" &&

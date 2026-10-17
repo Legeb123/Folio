@@ -244,6 +244,38 @@ export function BookDetail({
       <div className="book-modal-layout enriched-book">
         <aside>
           <Cover book={draft} />
+          <label className="book-cover-control">
+            <span>
+              {t("Cover style for this book", "Coverstil für dieses Buch")}
+            </span>
+            <select
+              value={draft.coverStyle ?? "global"}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  coverStyle:
+                    event.target.value === "global"
+                      ? undefined
+                      : (event.target.value as Book["coverStyle"]),
+                }))
+              }
+            >
+              <option value="global">
+                {t("Use global setting", "Globale Einstellung verwenden")}
+              </option>
+              <option value="modern">{t("Normal", "Normal")}</option>
+              <option value="minimalist">{t("Simple", "Einfach")}</option>
+              <option value="leather">
+                {t("Leather-bound", "Ledereinband")}
+              </option>
+            </select>
+            <small>
+              {t(
+                "Preview here, then save to apply to this book.",
+                "Hier ansehen und anschließend für dieses Buch speichern.",
+              )}
+            </small>
+          </label>
           <span className="eyebrow">
             {t("YOUR NEXT CHAPTER", "DEIN NÄCHSTES KAPITEL")}
           </span>

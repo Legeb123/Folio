@@ -12,6 +12,7 @@ export type Book = {
   author: string;
   year: number;
   cover: string;
+  coverStyle?: "modern" | "minimalist" | "leather";
   pages: number;
   status: Status;
   rating: number;

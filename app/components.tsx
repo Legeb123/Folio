@@ -1,4 +1,5 @@
 "use client";
+import { deduplicateSearchResults } from "@/lib/search-results";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -25,10 +26,11 @@ export function Cover({
 }) {
   const [failed, setFailed] = useState(false);
   const { prefs } = usePreferences();
+  const coverStyle = book.coverStyle ?? prefs.cover;
   useEffect(() => setFailed(false), [book.cover]);
   return (
     <div className={`cover ${className}`}>
-      {!failed && book.cover && prefs.cover === "modern" ? (
+      {!failed && book.cover && coverStyle === "modern" ? (
         <img
           src={book.cover}
           alt={`${bookTitle(book, prefs.language)} cover`}
@@ -37,7 +39,7 @@ export function Cover({
         />
       ) : (
         <div
-          className={`cover-fallback ${prefs.cover === "minimalist" ? "minimalist-cover" : prefs.cover === "leather" ? "leather-cover" : ""}`}
+          className={`cover-fallback ${coverStyle === "minimalist" ? "minimalist-cover" : coverStyle === "leather" ? "leather-cover" : ""}`}
         >
           <BookOpen />
           <strong>{bookTitle(book, prefs.language)}</strong>
@@ -154,7 +156,7 @@ export function SearchBox({
     const timer = setTimeout(async () => {
       try {
         const response = await fetch(
-          `https://openlibrary.org/search.json?q=${encodeURIComponent(`(${query}) language:${prefs.language === "de" ? "ger" : "eng"}`)}&limit=8&lang=${prefs.language}&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,editions,editions.key,editions.title,editions.language`,
+          `https://openlibrary.org/search.json?q=${encodeURIComponent(`(${query}) language:${prefs.language === "de" ? "ger" : "eng"}`)}&limit=40&lang=${prefs.language}&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,editions,editions.key,editions.title,editions.language`,
           {
             signal: AbortSignal.any([
               controller.signal,
@@ -164,40 +166,45 @@ export function SearchBox({
         );
         if (!response.ok) throw new Error("Search unavailable");
         const data = await response.json();
-        setResults(
-          (data.docs || []).map(
-            (d: {
-              key: string;
-              title: string;
+        const candidates: Book[] = (data.docs || []).map(
+          (
+            d: {
+              key?: string;
+              title?: string;
               author_name?: string[];
               first_publish_year?: number;
               cover_i?: number;
               number_of_pages_median?: number;
               editions?: GermanSearchMetadata["editions"];
-            }) =>
-              books.find((b) => b.id === d.key) || {
-                id: d.key,
-                title: d.title,
-                author: d.author_name?.[0] || "Unknown author",
-                year: d.first_publish_year || 0,
-                cover: d.cover_i
-                  ? `https://covers.openlibrary.org/b/id/${d.cover_i}-L.jpg`
-                  : "",
-                pages: d.number_of_pages_median || 0,
-                status: "Want to Read",
-                rating: 0,
-                date: "",
-                tags: [],
-                review: "",
-                spoiler: false,
-                description: "",
-                progress: 0,
-                ...germanFromSearch(d),
-              },
-          ),
+            },
+            index: number,
+          ) =>
+            books.find((b) => b.id === d.key) || {
+              id: d.key || `search:${encodeURIComponent(query)}:${index}`,
+              title: d.title || "",
+              author: d.author_name?.[0] || "Unknown author",
+              year: d.first_publish_year || 0,
+              cover: d.cover_i
+                ? `https://covers.openlibrary.org/b/id/${d.cover_i}-L.jpg`
+                : "",
+              pages: d.number_of_pages_median || 0,
+              status: "Want to Read",
+              rating: 0,
+              date: "",
+              tags: [],
+              review: "",
+              spoiler: false,
+              description: "",
+              progress: 0,
+              ...germanFromSearch(d),
+            },
         );
+        if (!controller.signal.aborted)
+          setResults(
+            deduplicateSearchResults(candidates, prefs.language).slice(0, 8),
+          );
       } catch (e) {
-        if ((e as Error).name !== "AbortError") {
+        if (!controller.signal.aborted && (e as Error).name !== "AbortError") {
           setResults(
             books.filter((b) =>
               `${bookTitle(b, prefs.language)} ${b.author}`
